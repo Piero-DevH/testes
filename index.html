@@ -323,12 +323,13 @@
   var search = "";
   var statusFilter = "todos";
   var repasseFilter = "todos";
+  var segmentoFilter = [];
   var dataDe = "";
   var dataAte = "";
   var pendingAnexo = null;
   var anexoRemoved = false;
   var uploadingAnexo = false;
-  var flowSelected = null;
+  var flowSelected = [];
   var activeTab = "painel";
   var calcInputs = {
     cliente: "", segmento: "imovel", contemplada: "nao",
@@ -689,7 +690,7 @@
     var midOut = layoutColumn(rightItems, totalH, top, 0);
     var right = layoutColumn(rightItems, totalH, top, 6);
 
-    function dimCls(g){ return (flowSelected && flowSelected !== g) ? " flow-dim" : ""; }
+    function dimCls(g){ return (flowSelected.length && flowSelected.indexOf(g) === -1) ? " flow-dim" : ""; }
 
     var svg = '<svg class="flow-svg" viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Fluxo de comissões">';
 
@@ -757,6 +758,7 @@
     var today = todayISO();
     return contratos.filter(function(c){
       if(statusFilter !== "todos" && c.status !== statusFilter) return false;
+      if(segmentoFilter.length && segmentoFilter.indexOf(c.segmento) === -1) return false;
       if(dataDe && (c.dataVenda||"") < dataDe) return false;
       if(dataAte && (c.dataVenda||"") > dataAte) return false;
       if(repasseFilter !== "todos"){
@@ -1028,12 +1030,12 @@
     html += '</section>';
 
     html += '<div class="card">';
-    html += '  <div class="card-head"><div><h2>Para onde foi cada comissão</h2><div class="sub">Passe o mouse sobre uma faixa para destacar sua origem ou destino.</div></div>';
+    html += '  <div class="card-head"><div><h2>Para onde foi cada comissão</h2><div class="sub">Clique em uma ou mais legendas para comparar; passe o mouse para pré-visualizar.</div></div>';
     html += '  <div class="legend">'+flowLegendItems().map(function(it){
-      var active = flowSelected === it.group;
-      var dim = flowSelected && !active;
+      var active = flowSelected.indexOf(it.group) > -1;
+      var dim = flowSelected.length && !active;
       return '<button type="button" class="legend-item'+(active?' active':'')+(dim?' dim':'')+'" data-action="toggle-flow-legend" data-group="'+esc(it.group)+'"><i style="background:'+it.color+'"></i>'+esc(it.label)+'</button>';
-    }).join('')+'</div>';
+    }).join('')+(flowSelected.length?'<button type="button" class="legend-item" data-action="clear-flow-selection" style="color:var(--accent);">Limpar seleção</button>':'')+'</div>';
     html += '  </div>';
     html += '  <div class="flow-wrap">'+renderFlow(stats)+'</div>';
     html += '</div>';
@@ -1056,9 +1058,17 @@
     html += '      </select>';
     html += '      <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.78rem;color:var(--ink-soft);">Venda de <input type="date" id="data-de" value="'+esc(dataDe)+'" style="border:1px solid var(--line-strong);background:var(--surface-2);color:var(--ink);border-radius:0.5rem;padding:0.45rem 0.6rem;font-size:0.8rem;"></label>';
     html += '      <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.78rem;color:var(--ink-soft);">até <input type="date" id="data-ate" value="'+esc(dataAte)+'" style="border:1px solid var(--line-strong);background:var(--surface-2);color:var(--ink);border-radius:0.5rem;padding:0.45rem 0.6rem;font-size:0.8rem;"></label>';
-    if(search || statusFilter!=="todos" || repasseFilter!=="todos" || dataDe || dataAte){
+    if(search || statusFilter!=="todos" || repasseFilter!=="todos" || segmentoFilter.length || dataDe || dataAte){
       html += '      <button class="btn btn-ghost" data-action="clear-filters" style="padding:0.5rem 0.8rem;">Limpar filtros</button>';
     }
+    html += '    </div>';
+    html += '    <div class="toolbar" style="padding-top:0;">';
+    html += '      <span style="font-size:0.78rem;color:var(--ink-faint);align-self:center;">Segmento:</span>';
+    html += SEGMENTOS.map(function(s){
+      var active = segmentoFilter.indexOf(s.id) > -1;
+      var dim = segmentoFilter.length && !active;
+      return '<button type="button" class="legend-item'+(active?' active':'')+(dim?' dim':'')+'" data-action="toggle-segmento-filter" data-segmento="'+esc(s.id)+'"><i style="background:var('+s.cssvar+')"></i>'+esc(s.label)+'</button>';
+    }).join('');
     html += '    </div>';
     html += '    <div id="export-msg" style="padding:0 1.3rem 0.6rem;"></div>';
     html += '    <div class="table-wrap"><table><thead><tr>';
@@ -1335,7 +1345,13 @@
           render();
         }
         else if(action === "calc-copy"){ copyResumoCalc(); }
-        else if(action === "clear-filters"){ search=""; statusFilter="todos"; repasseFilter="todos"; dataDe=""; dataAte=""; render(); }
+        else if(action === "clear-filters"){ search=""; statusFilter="todos"; repasseFilter="todos"; segmentoFilter=[]; dataDe=""; dataAte=""; render(); }
+        else if(action === "toggle-segmento-filter"){
+          var sg = t.getAttribute("data-segmento");
+          var sgIdx = segmentoFilter.indexOf(sg);
+          if(sgIdx > -1) segmentoFilter.splice(sgIdx, 1); else segmentoFilter.push(sg);
+          renderTablePartial();
+        }
         else if(action === "edit-meta"){
           var v = prompt("Meta de comissão recebida por mês (R$):", String(perfil.metaMensal||0));
           if(v !== null && !isNaN(Number(v))) saveMeta(Number(v));
@@ -1408,19 +1424,22 @@
         }
         else if(action === "toggle-flow-legend"){
           var lg = t.getAttribute("data-group");
-          flowSelected = (flowSelected === lg) ? null : lg;
+          var lgIdx = flowSelected.indexOf(lg);
+          if(lgIdx > -1) flowSelected.splice(lgIdx, 1); else flowSelected.push(lg);
           render();
         }
+        else if(action === "clear-flow-selection"){ flowSelected = []; render(); }
       }
       if(svgGroup && !t){
         var group = svgGroup.getAttribute("data-group");
-        flowSelected = (flowSelected === group) ? null : group;
+        var gIdx = flowSelected.indexOf(group);
+        if(gIdx > -1) flowSelected.splice(gIdx, 1); else flowSelected.push(group);
         render();
       }
     });
 
     app.addEventListener("mouseover", function(e){
-      if(flowSelected) return;
+      if(flowSelected.length) return;
       var svgGroup = e.target.closest("[data-group]");
       if(svgGroup){
         var group = svgGroup.getAttribute("data-group");
@@ -1430,7 +1449,7 @@
       }
     });
     app.addEventListener("mouseout", function(e){
-      if(flowSelected) return;
+      if(flowSelected.length) return;
       if((e.target.closest(".flow-svg") || e.target.closest(".legend")) && !e.relatedTarget){
         document.querySelectorAll("[data-group]").forEach(function(el){ el.classList.remove("flow-dim"); });
       }
